@@ -1,0 +1,12 @@
+configuration:
+  riseup_pat:
+    name: RiseUp token
+    description: Personal Access Token from input.riseup.co.il/developer/tokens (starts with riseup_pat_).
+  login_password:
+    name: Login password
+    description: Password you type once when connecting Claude to this add-on. At least 12 characters. Changing it disconnects Claude.
+  public_url:
+    name: Public URL
+    description: The public HTTPS address of this add-on (e.g. https://riseup.example.com), without /mcp.
+network:
+  8099/tcp: MCP gateway port (optional)

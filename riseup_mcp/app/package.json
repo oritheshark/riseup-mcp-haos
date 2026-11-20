@@ -1,0 +1,12 @@
+{
+  "name": "riseup-mcp-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "server.mjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@riseup-oss/mcp": "0.10.0",
+    "express": "^5.1.0"
+  }
+}

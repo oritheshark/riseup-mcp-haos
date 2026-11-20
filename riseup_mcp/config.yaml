@@ -1,0 +1,23 @@
+name: RiseUp MCP
+version: "0.1.0"
+slug: riseup_mcp
+description: RiseUp cashflow data (read-only) as a remote MCP connector for Claude, protected by OAuth + password.
+url: https://github.com/riseup-oss/mcp
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+init: true
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: MCP gateway (optional; not needed when using the Cloudflared add-on)
+options:
+  riseup_pat: ""
+  login_password: ""
+  public_url: ""
+schema:
+  riseup_pat: password
+  login_password: password
+  public_url: str
