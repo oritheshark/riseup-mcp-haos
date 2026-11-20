@@ -16,7 +16,7 @@ expire after 30 days.
 ## 2. Expose the add-on over HTTPS
 
 Claude connects from Anthropic's servers, so the add-on needs a public HTTPS address. The recommended way is
-the **Cloudflared** add-on (repository `https://github.com/brenner-tobias/addon-cloudflared`) with a domain
+the **Cloudflared** add-on (add the repository `https://github.com/homeassistant-apps/repository`) with a domain
 on Cloudflare. In its configuration, add:
 
 ```yaml
