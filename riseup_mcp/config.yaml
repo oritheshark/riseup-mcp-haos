@@ -1,5 +1,5 @@
 name: RiseUp MCP
-version: "0.2.0"
+version: "0.2.1"
 slug: riseup_mcp
 description: RiseUp cashflow data (read-only) as a remote MCP connector for Claude, protected by OAuth + password.
 url: https://github.com/riseup-oss/mcp
