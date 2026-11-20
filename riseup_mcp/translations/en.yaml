@@ -7,6 +7,6 @@ configuration:
     description: Password you type once when connecting Claude to this add-on. At least 12 characters. Changing it disconnects Claude.
   public_url:
     name: Public URL
-    description: The public HTTPS address of this add-on (e.g. https://riseup.example.com), without /mcp.
+    description: The public HTTPS address of this add-on (e.g. https://riseup.example.com). The full connector URL, with its secret path, is printed in the add-on log.
 network:
   8099/tcp: MCP gateway port (optional)

@@ -40,8 +40,6 @@ let publicUrl;
 try { publicUrl = new URL(opts.publicUrl); } catch { fatal('public_url must be a full URL, e.g. https://riseup.example.com'); }
 if (publicUrl.protocol !== 'https:') fatal('public_url must start with https://');
 
-const BASE = opts.publicUrl;
-const RESOURCE = `${BASE}/mcp`;
 const ALLOWED_REDIRECTS = new Set([
   'https://claude.ai/api/mcp/auth_callback',
   'https://claude.com/api/mcp/auth_callback',
@@ -56,6 +54,21 @@ const MAX_CLIENTS = 20;
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const b64url = (buf) => buf.toString('base64url');
 const randomToken = () => b64url(crypto.randomBytes(32));
+
+// ---------- secret URL path ----------
+// Every endpoint (OAuth + MCP) lives under a random path generated on first run and
+// kept in /data, so scanners hitting the public hostname find nothing but 404s.
+const SECRET_FILE = path.join(DATA_DIR, 'path_secret');
+let pathSecret = '';
+try { pathSecret = fs.readFileSync(SECRET_FILE, 'utf8').trim(); } catch { /* first run */ }
+if (!/^[A-Za-z0-9_-]{32,}$/.test(pathSecret)) {
+  pathSecret = randomToken();
+  fs.writeFileSync(SECRET_FILE, pathSecret, { mode: 0o600 });
+}
+const PREFIX = `/${pathSecret}`;
+const ORIGIN = publicUrl.origin;
+const BASE = `${ORIGIN}${PREFIX}`;     // OAuth issuer
+const RESOURCE = `${BASE}/mcp`;        // the URL to paste into Claude
 
 // ---------- persistent state ----------
 // Tokens are stored only as SHA-256 hashes. Changing login_password revokes everything.
@@ -137,11 +150,12 @@ app.disable('x-powered-by');
 app.set('trust proxy', true);
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
+const r = express.Router();
 
 const oauthError = (res, status, error, description) =>
   res.status(status).json({ error, ...(description ? { error_description: description } : {}) });
 
-app.get('/', (_req, res) => res.type('text').send('RiseUp MCP gateway is running.'));
+r.get('/', (_req, res) => res.type('text').send('RiseUp MCP gateway is running.'));
 
 const protectedResourceMetadata = (_req, res) => res.json({
   resource: RESOURCE,
@@ -149,8 +163,10 @@ const protectedResourceMetadata = (_req, res) => res.json({
   bearer_methods_supported: ['header'],
   resource_name: 'RiseUp',
 });
-app.get('/.well-known/oauth-protected-resource', protectedResourceMetadata);
-app.get('/.well-known/oauth-protected-resource/mcp', protectedResourceMetadata);
+// RFC 9728: path-inserted form at the root, plus the form under the secret prefix.
+app.get(`/.well-known/oauth-protected-resource${PREFIX}/mcp`, protectedResourceMetadata);
+r.get('/.well-known/oauth-protected-resource', protectedResourceMetadata);
+r.get('/.well-known/oauth-protected-resource/mcp', protectedResourceMetadata);
 
 const asMetadata = (_req, res) => res.json({
   issuer: BASE,
@@ -163,11 +179,14 @@ const asMetadata = (_req, res) => res.json({
   token_endpoint_auth_methods_supported: ['none'],
   scopes_supported: ['riseup'],
 });
-app.get('/.well-known/oauth-authorization-server', asMetadata);
-app.get('/.well-known/openid-configuration', asMetadata);
+// RFC 8414 path-inserted form at the root, plus the appended form under the issuer path.
+app.get(`/.well-known/oauth-authorization-server${PREFIX}`, asMetadata);
+app.get(`/.well-known/openid-configuration${PREFIX}`, asMetadata);
+r.get('/.well-known/oauth-authorization-server', asMetadata);
+r.get('/.well-known/openid-configuration', asMetadata);
 
 // Dynamic Client Registration (RFC 7591) — only Claude's callback URLs are accepted.
-app.post('/register', (req, res) => {
+r.post('/register', (req, res) => {
   const redirectUris = req.body?.redirect_uris;
   if (!Array.isArray(redirectUris) || redirectUris.length === 0) return oauthError(res, 400, 'invalid_redirect_uri', 'redirect_uris required');
   const bad = redirectUris.filter((u) => !ALLOWED_REDIRECTS.has(u));
@@ -213,20 +232,20 @@ function loginPage(p, message) {
 .card{background:#fff;padding:28px;border-radius:14px;box-shadow:0 2px 12px #0002;width:min(92vw,360px)}
 h1{font-size:20px;margin:0 0 6px}p{color:#555;font-size:14px}input[type=password]{width:100%;box-sizing:border-box;padding:12px;font-size:16px;border:1px solid #ccc;border-radius:8px}
 button{margin-top:14px;width:100%;padding:12px;font-size:16px;border:0;border-radius:8px;background:#1f6feb;color:#fff}.err{color:#b00020}</style></head>
-<body><form class="card" method="post" action="/authorize"><h1>חיבור RiseUp</h1>
+<body><form class="card" method="post" action="${PREFIX}/authorize"><h1>חיבור RiseUp</h1>
 <p><b>${clientName}</b> מבקש גישת קריאה לנתוני RiseUp שלך.</p>${message ? `<p class="err">${esc(message)}</p>` : ''}
 ${hidden}<input type="password" name="password" placeholder="סיסמת התוסף" autofocus required autocomplete="current-password">
 <button type="submit">אישור</button></form></body></html>`;
 }
 
-app.get('/authorize', (req, res) => {
+r.get('/authorize', (req, res) => {
   const p = req.query;
   const err = validateAuthorizeParams(p);
   if (err) return res.status(400).type('text').send(err);
   res.set('Cache-Control', 'no-store').set('X-Frame-Options', 'DENY').type('html').send(loginPage(p));
 });
 
-app.post('/authorize', (req, res) => {
+r.post('/authorize', (req, res) => {
   const p = req.body || {};
   const err = validateAuthorizeParams(p);
   if (err) return res.status(400).type('text').send(err);
@@ -262,7 +281,7 @@ function issueTokens(clientId) {
   return { access_token: access, token_type: 'Bearer', expires_in: ACCESS_TTL / 1000, refresh_token: refresh, scope: 'riseup' };
 }
 
-app.post('/token', (req, res) => {
+r.post('/token', (req, res) => {
   res.set('Cache-Control', 'no-store');
   const p = req.body || {};
   if (p.grant_type === 'authorization_code') {
@@ -291,7 +310,7 @@ function requireBearer(req, res, next) {
   const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
   const rec = m && state.accessTokens[sha256(m[1].trim())];
   if (!rec || rec.exp < Date.now()) {
-    const meta = `${BASE}/.well-known/oauth-protected-resource/mcp`;
+    const meta = `${BASE}/.well-known/oauth-protected-resource`;
     res.set('WWW-Authenticate', m
       ? `Bearer error="invalid_token", resource_metadata="${meta}"`
       : `Bearer resource_metadata="${meta}"`);
@@ -300,7 +319,7 @@ function requireBearer(req, res, next) {
   next();
 }
 
-app.post('/mcp', requireBearer, async (req, res) => {
+r.post('/mcp', requireBearer, async (req, res) => {
   const server = buildProxyServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   res.on('close', () => { transport.close().catch(() => {}); server.close().catch(() => {}); });
@@ -312,9 +331,13 @@ app.post('/mcp', requireBearer, async (req, res) => {
     if (!res.headersSent) res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' }, id: null });
   }
 });
-app.all('/mcp', requireBearer, (_req, res) => res.status(405).set('Allow', 'POST').json({ error: 'method_not_allowed' }));
+r.all('/mcp', requireBearer, (_req, res) => res.status(405).set('Allow', 'POST').json({ error: 'method_not_allowed' }));
+
+app.use(PREFIX, r);
+app.use((_req, res) => res.status(404).type('text').send('Not found'));
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[riseup-mcp] listening on :${PORT}; public MCP URL: ${RESOURCE}`);
+  console.log(`[riseup-mcp] listening on :${PORT}`);
+  console.log(`[riseup-mcp] Connector URL to paste into Claude: ${RESOURCE}`);
   getUpstream().then(() => console.log('[riseup-mcp] RiseUp MCP server started.')).catch((e) => console.error('[riseup-mcp] upstream failed to start:', e?.message || e));
 });

@@ -36,14 +36,21 @@ Replace `HOSTNAME` with this add-on's hostname, which is shown on its Info page 
 | `login_password` | A password of at least 12 characters. You type it once when connecting Claude |
 | `public_url` | The address from step 2, e.g. `https://riseup.example.com` (without `/mcp`) |
 
-Start the add-on and check the log for `RiseUp MCP server started.`
+Start the add-on and open its **Log** tab. It prints the connector URL, for example:
+
+```
+Connector URL to paste into Claude: https://riseup.example.com/ceAY0YULTt…/mcp
+```
+
+The long random part is generated on first start and stored in `/data`. Every endpoint lives under it, so
+anyone scanning your hostname gets only `404 Not found`. Treat the URL as private.
 
 ## 4. Connect Claude
 
 On claude.ai (web), go to **Settings → Connectors → Add custom connector**:
 
 - Name: `RiseUp`
-- URL: `https://riseup.example.com/mcp`
+- URL: the full connector URL from the log
 - Leave Advanced settings empty
 
 Click **Connect**. A RiseUp login page opens. Enter the login password. The connector is then available in
@@ -57,5 +64,6 @@ stays connected.
 ## Security notes
 
 - The RiseUp token is read-only and never leaves this add-on except to call `input.riseup.co.il`.
+- All endpoints sit under a secret random path; the bare hostname returns 404.
 - Five wrong passwords lock the login for 15 minutes.
 - To disconnect every client, change `login_password` and restart.
